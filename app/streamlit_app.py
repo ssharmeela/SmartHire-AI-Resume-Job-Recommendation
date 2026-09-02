@@ -1,19 +1,20 @@
 # ============================================================
 # SMARTHIRE AI
-# Resume Classification + Job Recommendation + Skill Gap
+# Resume-to-Job Matching & Career Guidance Engine
 # ============================================================
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import joblib
 import re
-import os
 
+from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -24,100 +25,188 @@ st.set_page_config(
 
 
 # ============================================================
-# PROJECT PATH
+# CUSTOM CSS
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
-)
+st.markdown("""
+<style>
 
+.main {
+    padding-top: 1rem;
+}
 
-# ============================================================
-# MODEL PATHS
-# ============================================================
+.hero {
+    padding: 2rem;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #172554, #2563eb);
+    color: white;
+    margin-bottom: 25px;
+}
 
-MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "models",
-    "resume_classifier.pkl"
-)
+.hero h1 {
+    font-size: 42px;
+    margin-bottom: 8px;
+}
 
-RESUME_TFIDF_PATH = os.path.join(
-    BASE_DIR,
-    "models",
-    "tfidf_vectorizer.pkl"
-)
+.hero p {
+    font-size: 18px;
+    opacity: 0.9;
+}
 
-JOB_TFIDF_PATH = os.path.join(
-    BASE_DIR,
-    "models",
-    "job_tfidf_vectorizer.pkl"
-)
+.section-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin-top: 25px;
+    margin-bottom: 15px;
+}
 
-JOB_MATRIX_PATH = os.path.join(
-    BASE_DIR,
-    "models",
-    "job_tfidf_matrix.pkl"
-)
+.job-card {
+    padding: 20px;
+    border-radius: 15px;
+    border: 1px solid #dbeafe;
+    background-color: #f8fafc;
+    margin-bottom: 15px;
+}
 
-JOBS_PATH = os.path.join(
-    BASE_DIR,
-    "data",
-    "processed",
-    "jobs_clean.csv"
-)
+.score {
+    font-size: 28px;
+    font-weight: bold;
+}
 
+.skill {
+    display: inline-block;
+    padding: 6px 12px;
+    margin: 4px;
+    border-radius: 15px;
+    background-color: #fee2e2;
+    color: #991b1b;
+    font-size: 14px;
+}
 
-# ============================================================
-# LOAD MODELS
-# ============================================================
+.success-box {
+    padding: 15px;
+    border-radius: 12px;
+    background-color: #dcfce7;
+    color: #166534;
+}
 
-@st.cache_resource
-def load_models():
-
-    model = joblib.load(MODEL_PATH)
-
-    resume_vectorizer = joblib.load(
-        RESUME_TFIDF_PATH
-    )
-
-    job_vectorizer = joblib.load(
-        JOB_TFIDF_PATH
-    )
-
-    job_matrix = joblib.load(
-        JOB_MATRIX_PATH
-    )
-
-    return (
-        model,
-        resume_vectorizer,
-        job_vectorizer,
-        job_matrix
-    )
+</style>
+""", unsafe_allow_html=True)
 
 
 # ============================================================
-# LOAD JOB DATA
+# PROJECT PATHS
+# ============================================================
+
+ROOT = Path(__file__).resolve().parents[1]
+
+DATA_PATH = ROOT / "data" / "processed" / "jobs_clean.csv"
+
+CLASSIFIER_PATH = ROOT / "models" / "resume_classifier.pkl"
+RESUME_TFIDF_PATH = ROOT / "models" / "tfidf_vectorizer.pkl"
+
+JOB_TFIDF_PATH = ROOT / "models" / "job_tfidf_vectorizer.pkl"
+JOB_MATRIX_PATH = ROOT / "models" / "job_tfidf_matrix.pkl"
+
+
+# ============================================================
+# LOAD DATA AND MODELS
 # ============================================================
 
 @st.cache_data
 def load_jobs():
 
-    jobs = pd.read_csv(
-        JOBS_PATH
-    )
+    jobs = pd.read_csv(DATA_PATH)
 
-    jobs = jobs.fillna("")
+    jobs["job_text"] = jobs["job_text"].fillna("")
 
     return jobs
 
 
-model, resume_vectorizer, job_vectorizer, job_matrix = load_models()
+@st.cache_resource
+def load_models():
+
+    classifier = joblib.load(CLASSIFIER_PATH)
+    resume_tfidf = joblib.load(RESUME_TFIDF_PATH)
+
+    job_tfidf = joblib.load(JOB_TFIDF_PATH)
+    job_matrix = joblib.load(JOB_MATRIX_PATH)
+
+    return classifier, resume_tfidf, job_tfidf, job_matrix
+
 
 jobs_df = load_jobs()
+
+classifier, resume_tfidf, job_tfidf, job_matrix = load_models()
+
+
+# ============================================================
+# RESUME TEXT EXTRACTION
+# ============================================================
+
+def extract_resume_text(uploaded_file):
+
+    file_name = uploaded_file.name.lower()
+
+    # TXT
+    if file_name.endswith(".txt"):
+
+        return uploaded_file.read().decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+    # PDF
+    elif file_name.endswith(".pdf"):
+
+        try:
+
+            from PyPDF2 import PdfReader
+
+            reader = PdfReader(uploaded_file)
+
+            text = ""
+
+            for page in reader.pages:
+                text += page.extract_text() or ""
+
+            return text
+
+        except Exception:
+
+            st.error(
+                "PDF reading requires PyPDF2. "
+                "Install it using: pip install PyPDF2"
+            )
+
+            return ""
+
+    # DOCX
+    elif file_name.endswith(".docx"):
+
+        try:
+
+            from docx import Document
+
+            document = Document(uploaded_file)
+
+            text = "\n".join(
+                paragraph.text
+                for paragraph in document.paragraphs
+            )
+
+            return text
+
+        except Exception:
+
+            st.error(
+                "DOCX reading requires python-docx. "
+                "Install it using: pip install python-docx"
+            )
+
+            return ""
+
+    return ""
 
 
 # ============================================================
@@ -126,33 +215,8 @@ jobs_df = load_jobs()
 
 def clean_text(text):
 
-    text = str(text)
-
-    # Lowercase
     text = text.lower()
 
-    # Remove URLs
-    text = re.sub(
-        r"http\S+|www\S+|https\S+",
-        " ",
-        text
-    )
-
-    # Remove email addresses
-    text = re.sub(
-        r"\S+@\S+",
-        " ",
-        text
-    )
-
-    # Remove special characters
-    text = re.sub(
-        r"[^a-zA-Z\s]",
-        " ",
-        text
-    )
-
-    # Remove extra spaces
     text = re.sub(
         r"\s+",
         " ",
@@ -163,7 +227,7 @@ def clean_text(text):
 
 
 # ============================================================
-# SKILL LIST
+# SKILLS
 # ============================================================
 
 SKILLS = [
@@ -171,73 +235,68 @@ SKILLS = [
     "java",
     "c++",
     "c",
-    "javascript",
     "sql",
     "machine learning",
-    "deep learning",
     "artificial intelligence",
-    "natural language processing",
-    "nlp",
     "data science",
-    "data analysis",
+    "deep learning",
+    "natural language processing",
+    "tensorflow",
+    "pytorch",
     "pandas",
     "numpy",
-    "scikit learn",
     "scikit-learn",
-    "tensorflow",
-    "keras",
-    "pytorch",
-    "matplotlib",
-    "seaborn",
     "streamlit",
     "git",
-    "github",
-    "docker",
-    "kubernetes",
-    "aws",
-    "azure",
-    "linux",
+    "javascript",
+    "html",
+    "css",
+    "nlp",
+    "excel",
+    "tableau",
+    "power bi",
     "spark",
     "hadoop",
-    "excel",
-    "power bi",
-    "tableau",
-    "statistics",
-    "flask",
-    "django",
-    "rest api",
-    "mongodb",
-    "mysql",
-    "postgresql",
-    "r",
-    "scala",
-    "html",
-    "css"
+    "linux"
 ]
 
 
-# ============================================================
-# EXTRACT SKILLS
-# ============================================================
-
 def extract_skills(text):
 
-    text = clean_text(text)
+    text = text.lower()
 
-    found_skills = []
+    found_skills = set()
 
     for skill in SKILLS:
 
-        skill_clean = skill.lower()
+        if skill in text:
+            found_skills.add(skill)
 
-        if skill_clean in text:
+    return found_skills
 
-            found_skills.append(
-                skill
-            )
 
-    return sorted(
-        list(set(found_skills))
+# ============================================================
+# SKILL OVERLAP
+# ============================================================
+
+def calculate_skill_overlap(
+    resume_skills,
+    job_text
+):
+
+    job_skills = extract_skills(job_text)
+
+    if len(job_skills) == 0:
+        return 0
+
+    matching_skills = resume_skills.intersection(
+        job_skills
+    )
+
+    return (
+        len(matching_skills)
+        /
+        len(job_skills)
     )
 
 
@@ -245,525 +304,467 @@ def extract_skills(text):
 # HEADER
 # ============================================================
 
-st.title(
-    "💼 SmartHire AI"
-)
+st.markdown("""
+<div class="hero">
 
-st.subheader(
-    "AI-Powered Resume Classification, Job Recommendation & Skill Gap Analysis"
-)
+<h1>💼 SmartHire AI</h1>
 
-st.write(
-    """
-    SmartHire analyzes a candidate's resume using
-    Natural Language Processing and Machine Learning,
-    predicts suitable job categories, recommends relevant
-    job opportunities, and identifies skill gaps.
-    """
-)
+<p>
+Resume-to-Job Matching & Career Guidance Engine
+</p>
 
-st.divider()
+<p>
+Upload your resume and discover the jobs, skills and career
+opportunities that match your profile.
+</p>
+
+</div>
+""", unsafe_allow_html=True)
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.title(
-    "🤖 SmartHire AI"
-)
+with st.sidebar:
 
-st.sidebar.markdown(
-    "### 🚀 Features"
-)
+    st.header("⚙️ SmartHire")
 
-st.sidebar.write(
-    "✅ Resume Classification"
-)
+    st.write(
+        "AI-powered resume analysis and job matching."
+    )
 
-st.sidebar.write(
-    "✅ Job Recommendation"
-)
+    st.divider()
 
-st.sidebar.write(
-    "✅ Skill Matching"
-)
+    st.write("📊 Dataset")
 
-st.sidebar.write(
-    "✅ Skill Gap Analysis"
-)
+    st.metric(
+        "Available Jobs",
+        f"{len(jobs_df):,}"
+    )
 
-st.sidebar.write(
-    "✅ Job Similarity"
-)
+    st.divider()
 
-st.sidebar.write(
-    "✅ K-Means Job Clustering"
-)
+    st.write("🔍 System Modules")
 
-st.sidebar.divider()
-
-st.sidebar.metric(
-    "Classifier Accuracy",
-    "68.81%"
-)
-
-st.sidebar.metric(
-    "Available Jobs",
-    f"{len(jobs_df):,}"
-)
-
-st.sidebar.info(
-    "Final Model: Random Forest"
-)
+    st.write("✅ Resume Classification")
+    st.write("✅ Job Recommendation")
+    st.write("✅ Fit Score")
+    st.write("✅ Skill Gap Analysis")
 
 
 # ============================================================
 # RESUME UPLOAD
 # ============================================================
 
-st.header(
-    "📄 Upload Your Resume"
+st.markdown(
+    '<div class="section-title">📄 Upload Your Resume</div>',
+    unsafe_allow_html=True
 )
 
 uploaded_file = st.file_uploader(
-    "Upload your resume as a TXT file",
-    type=["txt"]
+    "Upload TXT, PDF or DOCX",
+    type=["txt", "pdf", "docx"]
 )
 
 
 # ============================================================
-# MAIN APPLICATION
+# MAIN PROCESS
 # ============================================================
 
 if uploaded_file is not None:
 
-    st.success(
-        f"Uploaded successfully: {uploaded_file.name}"
+    resume_text = extract_resume_text(
+        uploaded_file
     )
 
-    # --------------------------------------------------------
-    # READ RESUME
-    # --------------------------------------------------------
-
-    resume_text = uploaded_file.read().decode(
-        "utf-8",
-        errors="ignore"
-    )
-
-    if not resume_text.strip():
+    if resume_text.strip() == "":
 
         st.error(
-            "The uploaded resume is empty."
+            "Could not extract text from the resume."
         )
 
         st.stop()
 
 
     # --------------------------------------------------------
-    # RESUME PREVIEW
+    # CLEAN RESUME
     # --------------------------------------------------------
 
-    with st.expander(
-        "📋 View Resume Text"
-    ):
-
-        st.text(
-            resume_text[:5000]
-        )
-
-
-    # --------------------------------------------------------
-    # ANALYZE BUTTON
-    # --------------------------------------------------------
-
-    analyze = st.button(
-        "🔍 Analyze Resume",
-        type="primary",
-        use_container_width=False
+    cleaned_resume = clean_text(
+        resume_text
     )
 
 
-    if analyze:
+    # ========================================================
+    # RESUME CLASSIFICATION
+    # ========================================================
 
-        # ====================================================
-        # TEXT PREPROCESSING
-        # ====================================================
+    prediction_vector = resume_tfidf.transform(
+        [cleaned_resume]
+    )
 
-        cleaned_resume = clean_text(
-            resume_text
+    predicted_category = classifier.predict(
+        prediction_vector
+    )[0]
+
+
+    # ========================================================
+    # RESUME SKILLS
+    # ========================================================
+
+    resume_skills = extract_skills(
+        cleaned_resume
+    )
+
+
+    # ========================================================
+    # JOB RECOMMENDATION
+    # ========================================================
+
+    resume_job_vector = job_tfidf.transform(
+        [cleaned_resume]
+    )
+
+    similarity_scores = cosine_similarity(
+        resume_job_vector,
+        job_matrix
+    ).flatten()
+
+
+    jobs_result = jobs_df.copy()
+
+    jobs_result["match_score"] = (
+        similarity_scores * 100
+    )
+
+
+    # ========================================================
+    # SKILL OVERLAP
+    # ========================================================
+
+    jobs_result["skill_overlap"] = jobs_result[
+        "job_text"
+    ].apply(
+        lambda x:
+        calculate_skill_overlap(
+            resume_skills,
+            x
+        )
+    )
+
+
+    # ========================================================
+    # FIT SCORE
+    # ========================================================
+
+    jobs_result["fit_score"] = (
+
+        0.6 * jobs_result["match_score"]
+
+        +
+
+        0.4 *
+        jobs_result["skill_overlap"] * 100
+    )
+
+
+    # ========================================================
+    # TOP JOBS
+    # ========================================================
+
+    top_jobs = jobs_result.sort_values(
+        "fit_score",
+        ascending=False
+    ).head(5)
+
+
+    # ========================================================
+    # DASHBOARD SUMMARY
+    # ========================================================
+
+    st.markdown(
+        '<div class="section-title">🎯 Resume Analysis</div>',
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.info(
+            f"### 🎓 Predicted Domain\n\n"
+            f"**{predicted_category}**"
+        )
+
+    with col2:
+
+        st.success(
+            f"### 🧠 Skills Detected\n\n"
+            f"**{len(resume_skills)} skills**"
+        )
+
+    with col3:
+
+        st.warning(
+            f"### 💼 Jobs Analyzed\n\n"
+            f"**{len(jobs_df):,} jobs**"
         )
 
 
-        # ====================================================
-        # RESUME CLASSIFICATION
-        # ====================================================
+    # ========================================================
+    # DETECTED SKILLS
+    # ========================================================
 
-        resume_vector = resume_vectorizer.transform(
-            [cleaned_resume]
-        )
+    st.markdown(
+        '<div class="section-title">🛠️ Detected Skills</div>',
+        unsafe_allow_html=True
+    )
 
-        prediction = model.predict(
-            resume_vector
-        )
+    if resume_skills:
 
-        predicted_category = prediction[0]
-
-
-        # ====================================================
-        # CLASSIFICATION SECTION
-        # ====================================================
-
-        st.divider()
-
-        st.header(
-            "🎯 Resume Classification"
+        skills_text = " • ".join(
+            sorted(resume_skills)
         )
 
         st.success(
-            f"Predicted Job Category: **{predicted_category}**"
+            skills_text
+        )
+
+    else:
+
+        st.warning(
+            "No predefined skills detected."
         )
 
 
-        # ====================================================
-        # TOP PREDICTIONS
-        # ====================================================
+    # ========================================================
+    # JOB RECOMMENDATIONS
+    # ========================================================
 
-        if hasattr(
-            model,
-            "predict_proba"
-        ):
-
-            probabilities = model.predict_proba(
-                resume_vector
-            )[0]
-
-            classes = model.classes_
-
-            results = sorted(
-                zip(classes, probabilities),
-                key=lambda x: x[1],
-                reverse=True
-            )
-
-            top_predictions = results[:3]
-
-            st.subheader(
-                "📊 Top 3 Model Predictions"
-            )
-
-            col1, col2, col3 = st.columns(3)
-
-            columns = [
-                col1,
-                col2,
-                col3
-            ]
-
-            medals = [
-                "🥇",
-                "🥈",
-                "🥉"
-            ]
-
-            for i, (
-                category,
-                probability
-            ) in enumerate(
-                top_predictions
-            ):
-
-                with columns[i]:
-
-                    st.metric(
-                        f"{medals[i]} {category}",
-                        f"{probability * 100:.2f}%"
-                    )
-
-            st.caption(
-                "Note: Model confidence represents the probability "
-                "assigned to each class for this particular resume. "
-                "It is different from the overall test accuracy."
-            )
+    st.markdown(
+        '<div class="section-title">🚀 Top Job Recommendations</div>',
+        unsafe_allow_html=True
+    )
 
 
-        # ====================================================
-        # SKILL EXTRACTION
-        # ====================================================
+    for index, (_, job) in enumerate(
+        top_jobs.iterrows(),
+        start=1
+    ):
 
-        resume_skills = extract_skills(
-            resume_text
+        job_title = job.get(
+            "jobtitle",
+            "Job Opportunity"
+        )
+
+        company = job.get(
+            "company",
+            "Company not specified"
+        )
+
+        location = job.get(
+            "joblocation_address",
+            "Location not specified"
+        )
+
+        fit_score = job["fit_score"]
+
+        match_score = job["match_score"]
+
+        skill_overlap = (
+            job["skill_overlap"] * 100
         )
 
 
-        # ====================================================
-        # JOB RECOMMENDATION
-        # ====================================================
+        # ----------------------------------------------------
+        # FIT LEVEL
+        # ----------------------------------------------------
 
-        st.divider()
+        if fit_score >= 70:
 
-        st.header(
-            "💼 Recommended Jobs"
+            fit_level = "Excellent Fit 🌟"
+
+        elif fit_score >= 50:
+
+            fit_level = "Good Fit 👍"
+
+        elif fit_score >= 30:
+
+            fit_level = "Moderate Fit 🟡"
+
+        else:
+
+            fit_level = "Low Fit 🔴"
+
+
+        # ----------------------------------------------------
+        # SKILL GAP
+        # ----------------------------------------------------
+
+        job_skills = extract_skills(
+            job["job_text"]
         )
 
-        st.write(
-            "Top job opportunities ranked according to "
-            "resume-job similarity."
-        )
-
-
-        # ====================================================
-        # RESUME → JOB VECTOR
-        # ====================================================
-
-        job_resume_vector = job_vectorizer.transform(
-            [cleaned_resume]
-        )
-
-
-        # ====================================================
-        # COSINE SIMILARITY
-        # ====================================================
-
-        similarities = cosine_similarity(
-            job_resume_vector,
-            job_matrix
-        )[0]
-
-
-        # ====================================================
-        # ADD MATCH SCORE
-        # ====================================================
-
-        jobs_result = jobs_df.copy()
-
-        jobs_result[
-            "match_score"
-        ] = similarities * 100
-
-
-        # ====================================================
-        # SORT
-        # ====================================================
-
-        jobs_result = jobs_result.sort_values(
-            by="match_score",
-            ascending=False
+        missing_skills = sorted(
+            job_skills - resume_skills
         )
 
 
-        # ====================================================
-        # TOP 5 JOBS
-        # ====================================================
+        # ----------------------------------------------------
+        # JOB CARD
+        # ----------------------------------------------------
 
-        top_jobs = jobs_result.head(
-            5
+        st.markdown(
+            f"""
+            <div class="job-card">
+
+            <h3>
+            {index}. {job_title}
+            </h3>
+
+            <p>
+            🏢 <b>{company}</b>
+            &nbsp;&nbsp; | &nbsp;&nbsp;
+            📍 {location}
+            </p>
+
+            <p>
+            <b>🎯 Fit:</b> {fit_level}
+            </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
 
-        # ====================================================
-        # DISPLAY JOBS
-        # ====================================================
+        col1, col2, col3 = st.columns(3)
 
-        for rank, (
-            index,
-            job
-        ) in enumerate(
-            top_jobs.iterrows(),
-            start=1
-        ):
+        with col1:
 
-            st.markdown(
-                f"### {rank}. 💼 {job['jobtitle']}"
+            st.metric(
+                "Overall Fit",
+                f"{fit_score:.1f}%"
             )
 
-            col1, col2 = st.columns(
-                2
+        with col2:
+
+            st.metric(
+                "Resume-Job Match",
+                f"{match_score:.1f}%"
             )
 
-            with col1:
-
-                st.write(
-                    f"🏢 **Company:** "
-                    f"{job['company']}"
-                )
-
-                st.write(
-                    f"📍 **Location:** "
-                    f"{job['joblocation_address']}"
-                )
-
-                st.write(
-                    f"💼 **Experience:** "
-                    f"{job['experience']}"
-                )
-
-            with col2:
-
-                st.metric(
-                    "🎯 Match Score",
-                    f"{job['match_score']:.2f}%"
-                )
-
-
-            # ------------------------------------------------
-            # JOB SKILLS
-            # ------------------------------------------------
-
-            job_text = ""
-
-            if "job_text" in job:
-
-                job_text = str(
-                    job["job_text"]
-                )
-
-            else:
-
-                job_text = (
-                    str(job.get("jobtitle", ""))
-                    + " "
-                    + str(job.get("skills", ""))
-                    + " "
-                    + str(job.get("jobdescription", ""))
-                )
-
-
-            job_skills = extract_skills(
-                job_text
-            )
-
-
-            # ------------------------------------------------
-            # SKILL MATCH
-            # ------------------------------------------------
-
-            if len(job_skills) > 0:
-
-                matching_skills = sorted(
-                    set(resume_skills)
-                    .intersection(
-                        set(job_skills)
-                    )
-                )
-
-                missing_skills = sorted(
-                    set(job_skills)
-                    - set(resume_skills)
-                )
-
-                skill_match = (
-                    len(matching_skills)
-                    /
-                    len(job_skills)
-                ) * 100
-
-            else:
-
-                matching_skills = []
-
-                missing_skills = []
-
-                skill_match = 0
-
-
-            # ------------------------------------------------
-            # SKILL MATCH DISPLAY
-            # ------------------------------------------------
-
-            st.subheader(
-                "🧩 Skill Analysis"
-            )
+        with col3:
 
             st.metric(
                 "Skill Match",
-                f"{skill_match:.2f}%"
+                f"{skill_overlap:.1f}%"
             )
 
 
-            skill_col1, skill_col2 = st.columns(
-                2
-            )
+        # ----------------------------------------------------
+        # SKILL GAP
+        # ----------------------------------------------------
 
-
-            with skill_col1:
-
-                st.markdown(
-                    "### ✅ Matching Skills"
-                )
-
-                if matching_skills:
-
-                    st.write(
-                        ", ".join(
-                            matching_skills
-                        )
-                    )
-
-                else:
-
-                    st.write(
-                        "No matching skills detected."
-                    )
-
-
-            with skill_col2:
-
-                st.markdown(
-                    "### ❌ Missing Skills"
-                )
-
-                if missing_skills:
-
-                    st.write(
-                        ", ".join(
-                            missing_skills
-                        )
-                    )
-
-                else:
-
-                    st.write(
-                        "No major missing skills detected."
-                    )
-
-
-            # ------------------------------------------------
-            # JOB DESCRIPTION
-            # ------------------------------------------------
+        if missing_skills:
 
             with st.expander(
-                "📖 View Job Description"
+                "🔎 View Skill Gap"
             ):
 
-                description = str(
-                    job.get(
-                        "jobdescription",
-                        ""
-                    )
+                st.write(
+                    "Skills recommended for this job:"
                 )
 
-                if description:
+                for skill in missing_skills:
 
-                    st.write(
-                        description[:3000]
+                    st.markdown(
+                        f'<span class="skill">{skill}</span>',
+                        unsafe_allow_html=True
                     )
 
-                else:
+        else:
 
-                    st.write(
-                        "Job description not available."
-                    )
-
-
-            st.divider()
+            st.success(
+                "🎉 Your detected skills cover the "
+                "skills identified in this job."
+            )
 
 
-# ============================================================
-# FOOTER
-# ============================================================
+        st.divider()
 
-st.caption(
-    "SmartHire AI | NLP + Machine Learning | "
-    "Resume Intelligence → Job Discovery → Skill Growth"
-)
+
+    # ========================================================
+    # CAREER SUMMARY
+    # ========================================================
+
+    st.markdown(
+        '<div class="section-title">💡 SmartHire Career Insight</div>',
+        unsafe_allow_html=True
+    )
+
+
+    best_job = top_jobs.iloc[0]
+
+    best_title = best_job.get(
+        "jobtitle",
+        "your recommended role"
+    )
+
+    best_score = best_job["fit_score"]
+
+
+    st.markdown(
+        f"""
+        <div class="success-box">
+
+        <h3>🌟 Your strongest opportunity</h3>
+
+        <p>
+        Based on your resume skills and job-description similarity,
+        <b>{best_title}</b> has the highest calculated fit score
+        among the analyzed opportunities.
+        </p>
+
+        <p>
+        <b>Fit Score: {best_score:.1f}%</b>
+        </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+else:
+
+    # ========================================================
+    # EMPTY STATE
+    # ========================================================
+
+    st.markdown("""
+    <div style="
+        text-align:center;
+        padding:60px 20px;
+        border-radius:18px;
+        border:2px dashed #cbd5e1;
+        margin-top:25px;
+    ">
+
+    <h2>👋 Welcome to SmartHire AI</h2>
+
+    <p style="font-size:18px;">
+    Upload your resume above to start your AI-powered
+    career analysis.
+    </p>
+
+    <p>
+    🔹 Discover your job domain<br>
+    🔹 Find matching job opportunities<br>
+    🔹 Calculate job-fit scores<br>
+    🔹 Identify missing skills
+    </p>
+
+    </div>
+    """, unsafe_allow_html=True)
