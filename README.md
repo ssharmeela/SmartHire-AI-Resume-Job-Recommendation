@@ -50,15 +50,11 @@ SmartHire AI solves these problems using Machine Learning and NLP.
                                   ↓
                          Career Guidance
 
----
+```
 
-✨ From Resume → Jobs → Skills → Career Direction
+ 👩‍💻 Author
 
----
-
-## 👩‍💻 Author
-
-**Sharmeela S**
+Sharmeela S
 
 B.Tech Computer Science Engineering  
 AI / ML Enthusiast
