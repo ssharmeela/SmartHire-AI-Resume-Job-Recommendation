@@ -47,12 +47,18 @@ SmartHire AI solves these problems using Machine Learning and NLP.
                       └────→ Skill Gap
                                   ↓
                               Fit Score
-
-👩‍💻 Author
-
-Sharmeela S
-
-B.Tech Computer Science Engineering
-AI / ML Enthusiast
                                   ↓
                          Career Guidance
+
+---
+
+✨ From Resume → Jobs → Skills → Career Direction
+
+---
+
+## 👩‍💻 Author
+
+**Sharmeela S**
+
+B.Tech Computer Science Engineering  
+AI / ML Enthusiast
