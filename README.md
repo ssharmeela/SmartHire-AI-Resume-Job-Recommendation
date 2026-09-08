@@ -1,4 +1,4 @@
- 🚀 SmartHire AI
+# 🚀 SmartHire AI
 ### Resume-to-Job Matching & Career Guidance System
 
 SmartHire AI is a Machine Learning and NLP based career assistance system that helps candidates find suitable jobs based on their resume.
@@ -25,7 +25,8 @@ SmartHire AI solves these problems using Machine Learning and NLP.
 ---
 
 ## 💡 How SmartHire Works
---
+
+```text
                  USER RESUME
                       ↓
               Extract Resume Text
