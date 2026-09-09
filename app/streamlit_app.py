@@ -63,9 +63,16 @@ st.markdown("""
 .job-card {
     padding: 20px;
     border-radius: 15px;
-    border: 1px solid #dbeafe;
-    background-color: #f8fafc;
+    border: 1px solid rgba(128, 128, 128, 0.35);
+    background-color: var(--secondary-background-color);
+    color: var(--text-color);
     margin-bottom: 15px;
+}
+
+.job-card h3,
+.job-card p,
+.job-card b {
+    color: var(--text-color) !important;
 }
 
 .score {
