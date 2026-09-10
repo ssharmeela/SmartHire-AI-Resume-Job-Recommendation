@@ -75,6 +75,7 @@ SmartHire addresses this problem by analyzing a resume and providing:
                                  │
                                  ▼
                          🌐 Streamlit App
+```
 
 ## 🛠️ Tech Stack
 
